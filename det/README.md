@@ -28,7 +28,7 @@
 
   - ```bash
     cp -r ../configs/* configs/
-    cp -r ../mmdet/distillation/* mmdet/
+    cp -r ../mmdet/distillation mmdet/
     cp ../mmdet/apis/train.py mmdet/apis/
     cp ../tools/train.py tools/
     cp ../../pth_transfer.py ./
