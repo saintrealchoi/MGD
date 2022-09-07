@@ -51,7 +51,7 @@ class FeatureLoss(nn.Module):
             gt_bboxes(tuple): Bs*[nt*4], pixel decimal: (tl_x, tl_y, br_x, br_y)
             img_metas (list[dict]): Meta information of each image, e.g.,
             image size, scaling factor, etc.
-            loss_name: Feature Loss name for FPN Layer
+            loss_name(string): Feature Loss name for partial layer distillation
         """
         assert preds_S.shape[-2:] == preds_T.shape[-2:]
 
