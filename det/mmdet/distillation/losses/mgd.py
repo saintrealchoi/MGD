@@ -68,17 +68,31 @@ class FeatureLoss(nn.Module):
 
         device = preds_S.device
 
-        if loss_name[-1]=='3' or loss_name[-1]=='4':
+        if loss_name[-1] == '3' or loss_name[-1] == '4':
             new_fea = self.generation(preds_S)
-            
             dis_loss = loss_mse(new_fea, preds_T)/N
             return dis_loss
-
+            
         else:
-            mat = torch.rand((N,1,H,W)).to(device)
-            mat = torch.where(mat>1-self.lambda_mgd, 0, 1).to(device)
+            Mask = torch.ones(N,H,W).to(device)
+            for i in range(N):
+                new_boxxes = torch.ones_like(gt_bboxes[i]).to(device)
+                new_boxxes[:, 0] = gt_bboxes[i][:, 0]/img_metas[i]['img_shape'][1]*W
+                new_boxxes[:, 2] = gt_bboxes[i][:, 2]/img_metas[i]['img_shape'][1]*W
+                new_boxxes[:, 1] = gt_bboxes[i][:, 1]/img_metas[i]['img_shape'][0]*H
+                new_boxxes[:, 3] = gt_bboxes[i][:, 3]/img_metas[i]['img_shape'][0]*H
 
-            masked_fea = torch.mul(preds_S, mat)
+                new_boxxes = new_boxxes.int()
+
+                for k in range(len(new_boxxes)):
+                    Mask[i][new_boxxes[k][1]:new_boxxes[k][3]][new_boxxes[k][0]:new_boxxes[k][2]]=0
+
+            Mask = Mask.unsqueeze(dim=1)
+            mat_rand = torch.rand((N,1,H,W)).to(device)
+            mat_rand = torch.where(mat_rand>1-self.lambda_mgd, 0, 1).to(device)
+            mat_final = torch.logical_or(Mask,mat_rand).int()
+
+            masked_fea = torch.mul(preds_S, mat_final)
             new_fea = self.generation(masked_fea)
 
             dis_loss = loss_mse(new_fea, preds_T)/N
