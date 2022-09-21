@@ -8,6 +8,44 @@ lambda_mgd=0.45
 distiller = dict(
     type='DetectionDistiller',
     teacher_pretrained = 'https://download.openmmlab.com/mmdetection/v2.0/faster_rcnn/faster_rcnn_x101_64x4d_fpn_1x_coco/faster_rcnn_x101_64x4d_fpn_1x_coco_20200204-833ee192.pth',
+    alignment_cfg = [
+                    dict(student_module = 'neck.fpn_convs.2.conv',
+                         teacher_module = 'neck.fpn_convs.3.conv',
+                         output_hook = True,
+                         methods=[dict(type='FeatureLoss',
+                                       name='loss_mgd_align_fpn_2',
+                                       student_channels = 256,
+                                       teacher_channels = 256,
+                                       alpha_mgd=alpha_mgd,
+                                       lambda_mgd=lambda_mgd,
+                                       )
+                                ]
+                        ),
+                    dict(student_module = 'neck.fpn_convs.1.conv',
+                         teacher_module = 'neck.fpn_convs.2.conv',
+                         output_hook = True,
+                         methods=[dict(type='FeatureLoss',
+                                       name='loss_mgd_align_fpn_1',
+                                       student_channels = 256,
+                                       teacher_channels = 256,
+                                       alpha_mgd=alpha_mgd,
+                                       lambda_mgd=lambda_mgd,
+                                       )
+                                ]
+                        ),
+                    dict(student_module = 'neck.fpn_convs.0.conv',
+                         teacher_module = 'neck.fpn_convs.1.conv',
+                         output_hook = True,
+                         methods=[dict(type='FeatureLoss',
+                                       name='loss_mgd_align_fpn_0',
+                                       student_channels = 256,
+                                       teacher_channels = 256,
+                                       alpha_mgd=alpha_mgd,
+                                       lambda_mgd=lambda_mgd,
+                                       )
+                                ]
+                        ),
+                    ],
     distill_cfg = [ dict(student_module = 'neck.fpn_convs.3.conv',
                          teacher_module = 'neck.fpn_convs.3.conv',
                          output_hook = True,
