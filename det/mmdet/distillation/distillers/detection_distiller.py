@@ -19,6 +19,7 @@ class DetectionDistiller(BaseDetector):
                  teacher_cfg,
                  student_cfg,
                  distill_cfg=None,
+                 alignment_cfg=None,
                  teacher_pretrained=None,
                  init_student=False):
 
@@ -47,15 +48,18 @@ class DetectionDistiller(BaseDetector):
             load_state_dict(self.student, state_dict)
             
         self.distill_losses = nn.ModuleDict()
-        self.distill_cfg = distill_cfg   
+
+        self.distill_cfg = distill_cfg 
+        self.alignment_cfg = alignment_cfg 
 
         student_modules = dict(self.student.named_modules())
         teacher_modules = dict(self.teacher.named_modules())
+
         def regitster_hooks(student_module,teacher_module):
             def hook_teacher_forward(module, input, output):
                     self.register_buffer(teacher_module,output)
             def hook_student_forward(module, input, output):
-                    self.register_buffer( student_module,output )
+                    self.register_buffer(student_module,output)
             return hook_teacher_forward,hook_student_forward
         
         for item_loc in distill_cfg:
@@ -73,6 +77,16 @@ class DetectionDistiller(BaseDetector):
             for item_loss in item_loc.methods:
                 loss_name = item_loss.name
                 self.distill_losses[loss_name] = build_distill_loss(item_loss)
+            
+        for item_loc in alignment_cfg:
+            
+            student_module = 'student_' + item_loc.student_module.replace('.','_')
+            teacher_module = 'teacher_' + item_loc.teacher_module.replace('.','_')
+
+            for item_loss in item_loc.methods:
+                loss_name = item_loss.name
+                self.distill_losses[loss_name] = build_distill_loss(item_loss)
+
     def base_parameters(self):
         return nn.ModuleList([self.student,self.distill_losses])
 
@@ -135,6 +149,7 @@ class DetectionDistiller(BaseDetector):
             fea_t = self.teacher.extract_feat(img)
 
         buffer_dict = dict(self.named_buffers())
+        # Forward 하는 부분
         for item_loc in self.distill_cfg:
             student_module = 'student_' + item_loc.student_module.replace('.','_')
             teacher_module = 'teacher_' + item_loc.teacher_module.replace('.','_')
@@ -142,9 +157,8 @@ class DetectionDistiller(BaseDetector):
             teacher_feat = buffer_dict[teacher_module]
             for item_loss in item_loc.methods:
                 loss_name = item_loss.name
-                student_loss[loss_name] = self.distill_losses[loss_name](student_feat,teacher_feat,kwargs['gt_bboxes'],img_metas,loss_name)
+                student_loss[loss_name] = self.distill_losses[loss_name](student_feat,teacher_feat,kwargs['gt_bboxes'],img_metas, loss_name)
 
-        # For Feature Alignment
         img_ds = self.resize_image(img)
         fea_ds = self.student.extract_feat(img_ds)
         buffer_dict = dict(self.named_buffers())
@@ -157,7 +171,7 @@ class DetectionDistiller(BaseDetector):
             for item_loss in item_loc.methods:
                 loss_name = item_loss.name
                 student_loss[loss_name] = self.distill_losses[loss_name](student_feat,teacher_feat,kwargs['gt_bboxes'],img_metas, loss_name)
-                
+
         return student_loss
     
     def simple_test(self, img, img_metas, **kwargs):
@@ -168,4 +182,8 @@ class DetectionDistiller(BaseDetector):
         """Extract features from images."""
         return self.student.extract_feat(imgs)
 
-
+    def resize_image(self, inputs, resize_ratio=0.5):
+        down_inputs = F.interpolate(inputs, 
+                                    scale_factor=resize_ratio, 
+                                    mode='nearest')
+        return down_inputs
