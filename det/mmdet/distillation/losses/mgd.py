@@ -51,15 +51,15 @@ class FeatureLoss(nn.Module):
             gt_bboxes(tuple): Bs*[nt*4], pixel decimal: (tl_x, tl_y, br_x, br_y)
             img_metas (list[dict]): Meta information of each image, e.g.,
             image size, scaling factor, etc.
-            loss_name(string): Feature Loss name for partial layer distillation
         """
         assert preds_S.shape[-2:] == preds_T.shape[-2:]
 
         if self.align is not None:
             preds_S = self.align(preds_S)
-    
-        loss = self.get_dis_loss(preds_S, preds_T, gt_bboxes, img_metas, loss_name)*self.alpha_mgd
-            
+        if loss_name.split('_')[2] == 'align':
+            loss = self.get_align_loss(preds_S, preds_T)*self.alpha_mgd
+        else:
+            loss = self.get_dis_loss(preds_S, preds_T, gt_bboxes, img_metas, loss_name)*self.alpha_mgd
         return loss
 
     def get_dis_loss(self, preds_S, preds_T, gt_bboxes, img_metas, loss_name):
@@ -118,3 +118,13 @@ class FeatureLoss(nn.Module):
         #     dis_loss = loss_mse(new_fea, preds_T)/N
         #     return dis_loss
         # # MGD (Random Mask On Part of the FPN layers) Fin.
+
+    def get_align_loss(self, preds_S, preds_T):
+        loss_mse = nn.MSELoss(reduction='sum')
+        N, C, H, W = preds_T.shape
+
+        new_fea = self.generation(preds_S)
+
+        align_loss = loss_mse(new_fea, preds_T)/N
+
+        return align_loss

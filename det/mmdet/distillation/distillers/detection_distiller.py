@@ -144,6 +144,20 @@ class DetectionDistiller(BaseDetector):
                 loss_name = item_loss.name
                 student_loss[loss_name] = self.distill_losses[loss_name](student_feat,teacher_feat,kwargs['gt_bboxes'],img_metas,loss_name)
 
+        # For Feature Alignment
+        img_ds = self.resize_image(img)
+        fea_ds = self.student.extract_feat(img_ds)
+        buffer_dict = dict(self.named_buffers())
+        
+        for item_loc in self.alignment_cfg:
+            student_module = 'student_' + item_loc.student_module.replace('.','_')
+            teacher_module = 'teacher_' + item_loc.teacher_module.replace('.','_')
+            student_feat = buffer_dict[student_module]
+            teacher_feat = buffer_dict[teacher_module]
+            for item_loss in item_loc.methods:
+                loss_name = item_loss.name
+                student_loss[loss_name] = self.distill_losses[loss_name](student_feat,teacher_feat,kwargs['gt_bboxes'],img_metas, loss_name)
+                
         return student_loss
     
     def simple_test(self, img, img_metas, **kwargs):
