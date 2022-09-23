@@ -20,6 +20,7 @@ class DetectionDistiller(BaseDetector):
                  student_cfg,
                  distill_cfg=None,
                  alignment_cfg=None,
+                 bg_distill_cfg=None,
                  teacher_pretrained=None,
                  init_student=False):
 
@@ -51,6 +52,7 @@ class DetectionDistiller(BaseDetector):
 
         self.distill_cfg = distill_cfg 
         self.alignment_cfg = alignment_cfg 
+        self.bg_distill_cfg = bg_distill_cfg
 
         student_modules = dict(self.student.named_modules())
         teacher_modules = dict(self.teacher.named_modules())
@@ -79,6 +81,15 @@ class DetectionDistiller(BaseDetector):
                 self.distill_losses[loss_name] = build_distill_loss(item_loss)
             
         for item_loc in alignment_cfg:
+            
+            student_module = 'student_' + item_loc.student_module.replace('.','_')
+            teacher_module = 'teacher_' + item_loc.teacher_module.replace('.','_')
+
+            for item_loss in item_loc.methods:
+                loss_name = item_loss.name
+                self.distill_losses[loss_name] = build_distill_loss(item_loss)
+
+        for item_loc in bg_distill_cfg:
             
             student_module = 'student_' + item_loc.student_module.replace('.','_')
             teacher_module = 'teacher_' + item_loc.teacher_module.replace('.','_')
@@ -159,10 +170,19 @@ class DetectionDistiller(BaseDetector):
                 loss_name = item_loss.name
                 student_loss[loss_name] = self.distill_losses[loss_name](student_feat,teacher_feat,kwargs['gt_bboxes'],img_metas, loss_name)
 
+        for item_loc in self.bg_distill_cfg:
+            student_module = 'student_' + item_loc.student_module.replace('.','_')
+            teacher_module = 'teacher_' + item_loc.teacher_module.replace('.','_')
+            student_feat = buffer_dict[student_module]
+            teacher_feat = buffer_dict[teacher_module]
+            for item_loss in item_loc.methods:
+                loss_name = item_loss.name
+                student_loss[loss_name] = self.distill_losses[loss_name](student_feat,teacher_feat,kwargs['gt_bboxes'],img_metas, loss_name)
+
         img_ds = self.resize_image(img)
         fea_ds = self.student.extract_feat(img_ds)
         buffer_dict = dict(self.named_buffers())
-        
+
         for item_loc in self.alignment_cfg:
             student_module = 'student_' + item_loc.student_module.replace('.','_')
             teacher_module = 'teacher_' + item_loc.teacher_module.replace('.','_')

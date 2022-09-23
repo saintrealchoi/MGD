@@ -20,10 +20,12 @@ class FeatureLoss(nn.Module):
                  teacher_channels,
                  name,
                  alpha_mgd=0.00002,
+                 beta_mgd=0.00001,
                  lambda_mgd=0.65,
                  ):
         super(FeatureLoss, self).__init__()
         self.alpha_mgd = alpha_mgd
+        self.beta_mgd = beta_mgd
         self.lambda_mgd = lambda_mgd
         self.name = name
     
@@ -33,6 +35,16 @@ class FeatureLoss(nn.Module):
             self.align = None
 
         self.generation = nn.Sequential(
+            nn.Conv2d(teacher_channels, teacher_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True), 
+            nn.Conv2d(teacher_channels, teacher_channels, kernel_size=3, padding=1))
+
+        self.feature_alignment = nn.Sequential(
+            nn.Conv2d(teacher_channels, teacher_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True), 
+            nn.Conv2d(teacher_channels, teacher_channels, kernel_size=3, padding=1))
+
+        self.bg_generation = nn.Sequential(
             nn.Conv2d(teacher_channels, teacher_channels, kernel_size=3, padding=1),
             nn.ReLU(inplace=True), 
             nn.Conv2d(teacher_channels, teacher_channels, kernel_size=3, padding=1))
@@ -56,19 +68,21 @@ class FeatureLoss(nn.Module):
 
         if self.align is not None:
             preds_S = self.align(preds_S)
+
         if loss_name.split('_')[2] == 'align':
             loss = self.get_align_loss(preds_S, preds_T)*self.alpha_mgd
+        elif loss_name.split('_')[2] == 'bg':
+            loss = self.get_bg_dis_loss(preds_S, preds_T, gt_bboxes, img_metas, loss_name)*self.beta_mgd
         else:
             loss = self.get_dis_loss(preds_S, preds_T, gt_bboxes, img_metas, loss_name)*self.alpha_mgd
+
         return loss
 
     def get_dis_loss(self, preds_S, preds_T, gt_bboxes, img_metas, loss_name):
         loss_mse = nn.MSELoss(reduction='sum')
-        N, _, H, W = preds_T.shape
+        N, C, H, W = preds_T.shape
 
         device = preds_S.device
-
-        ### MGD (w/ Random Mask) ###
         mat = torch.rand((N,1,H,W)).to(device)
         mat = torch.where(mat>1-self.lambda_mgd, 0, 1).to(device)
 
@@ -78,53 +92,43 @@ class FeatureLoss(nn.Module):
         dis_loss = loss_mse(new_fea, preds_T)/N
 
         return dis_loss
-        ### MGD (w/ Random Mask) Fin. ###
-
-
-        # # MGD (w/o Random Mask)
-        # new_fea = self.generation(preds_S)
-        # dis_loss = loss_mse(new_fea, preds_T)/N
-        # # MGD (w/o Random Mask) Fin.
-
-
-        # # MGD (Random Mask On Part of the FPN layers)
-        # if loss_name[-1] == '3' or loss_name[-1] == '4':
-        #     new_fea = self.generation(preds_S)
-        #     dis_loss = loss_mse(new_fea, preds_T)/N
-        #     return dis_loss
-            
-        # else:
-        #     Mask = torch.ones(N,H,W).to(device)
-        #     for i in range(N):
-        #         new_boxxes = torch.ones_like(gt_bboxes[i]).to(device)
-        #         new_boxxes[:, 0] = gt_bboxes[i][:, 0]/img_metas[i]['img_shape'][1]*W
-        #         new_boxxes[:, 2] = gt_bboxes[i][:, 2]/img_metas[i]['img_shape'][1]*W
-        #         new_boxxes[:, 1] = gt_bboxes[i][:, 1]/img_metas[i]['img_shape'][0]*H
-        #         new_boxxes[:, 3] = gt_bboxes[i][:, 3]/img_metas[i]['img_shape'][0]*H
-
-        #         new_boxxes = new_boxxes.int()
-
-        #         for k in range(len(new_boxxes)):
-        #             Mask[i][new_boxxes[k][1]:new_boxxes[k][3]][new_boxxes[k][0]:new_boxxes[k][2]]=0
-
-        #     Mask = Mask.unsqueeze(dim=1)
-        #     mat_rand = torch.rand((N,1,H,W)).to(device)
-        #     mat_rand = torch.where(mat_rand>1-self.lambda_mgd, 0, 1).to(device)
-        #     mat_final = torch.logical_or(Mask,mat_rand).int()
-
-        #     masked_fea = torch.mul(preds_S, mat_final)
-        #     new_fea = self.generation(masked_fea)
-
-        #     dis_loss = loss_mse(new_fea, preds_T)/N
-        #     return dis_loss
-        # # MGD (Random Mask On Part of the FPN layers) Fin.
 
     def get_align_loss(self, preds_S, preds_T):
         loss_mse = nn.MSELoss(reduction='sum')
         N, C, H, W = preds_T.shape
 
-        new_fea = self.generation(preds_S)
+        new_fea = self.feature_alignment(preds_S)
 
         align_loss = loss_mse(new_fea, preds_T)/N
 
         return align_loss
+    
+    def get_bg_dis_loss(self, preds_S, preds_T, gt_bboxes, img_metas, loss_name):
+        loss_mse = nn.MSELoss(reduction='sum')
+        N, C, H, W = preds_T.shape
+
+        device = preds_S.device
+
+        Mask = torch.ones(N,H,W).to(device)
+        for i in range(N):
+            new_boxxes = torch.ones_like(gt_bboxes[i]).to(device)
+            new_boxxes[:, 0] = gt_bboxes[i][:, 0]/img_metas[i]['img_shape'][1]*W
+            new_boxxes[:, 2] = gt_bboxes[i][:, 2]/img_metas[i]['img_shape'][1]*W
+            new_boxxes[:, 1] = gt_bboxes[i][:, 1]/img_metas[i]['img_shape'][0]*H
+            new_boxxes[:, 3] = gt_bboxes[i][:, 3]/img_metas[i]['img_shape'][0]*H
+
+            new_boxxes = new_boxxes.int()
+
+            for k in range(len(new_boxxes)):
+                Mask[i][new_boxxes[k][1]:new_boxxes[k][3]][new_boxxes[k][0]:new_boxxes[k][2]]=0
+
+        Mask = Mask.unsqueeze(dim=1)
+
+        masked_fea = torch.mul(preds_S, Mask)
+        new_fea = self.bg_generation(masked_fea)
+        new_fea = torch.mul(new_fea, Mask)
+        preds_T = torch.mul(preds_T, Mask)
+
+        bg_dis_loss = loss_mse(new_fea, preds_T)/N
+
+        return bg_dis_loss
